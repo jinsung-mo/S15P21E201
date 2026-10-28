@@ -7,12 +7,12 @@
 | 기간·인원 | 2026.08 ~ 09 · SSAFY 15기 6인 팀 프로젝트, 이후 앱 업데이트 진행 중 |
 | 수상 | SSAFY 특화프로젝트 우수상 (15기 부울경 2반 2등) · 2026.09 |
 | 전시 | FLY ASIA 2026 부스 전시 · 2026.10 · 부산 BEXCO |
-| 제 담당 | 여행·일정 백엔드, PostgreSQL 저장·검증, 이벤트 수집 경로 수정 |
+| 맡은 역할 | 여행·일정 백엔드 API, PostgreSQL 저장과 검증, 이벤트 저장 경로 수정 |
 | 사용 기술 | Java 17, Spring Boot, Spring Data JPA, PostgreSQL, Flyway |
 
-[앱 시연](#앱-시연) · [수상과 전시](#수상과-전시) · [제가 맡은 일](#제가-맡은-일) · [문제 해결](#문제-해결) · [실행 방법](#실행-방법)
+[앱 시연](#앱-시연) · [맡은 역할](#맡은-역할) · [해결한 문제](#해결한-문제) · [트러블슈팅](#트러블슈팅) · [수상과 전시](#수상과-전시) · [실행 방법](#실행-방법)
 
-## 왜 만들었나요?
+## 프로젝트 소개
 
 낯선 도시에서 여행 일정을 짤 때는 유명한 장소 목록만으로 부족합니다. 숙소에서 얼마나 걸리는지, 오래 걸어도 괜찮은지, 식사 제약에 맞는지도 함께 따져야 합니다. 가볼래는 여행자가 입력한 조건으로 장소를 고르고 일정을 만드는 과정을 돕기 위해 만들었습니다.
 
@@ -34,18 +34,9 @@
 
 사용자는 홈에서 장소와 축제를 살펴본 뒤 여행 날짜와 인원, 예산, 취향을 입력합니다. 코스를 선택하면 날짜별 일정과 지도에서 방문 순서를 확인합니다. 여행 중에 쓸 한국어 문장과 현장 도구도 앱에 마련했습니다.
 
-## 수상과 전시
+## 맡은 역할
 
-| SSAFY 특화프로젝트 발표회 우수상 | FLY ASIA 2026 전시 부스 |
-| :---: | :---: |
-| <img src="docs/photos/ssafy-award.jpg" alt="SSAFY 특화프로젝트 발표회에서 15기 부울경 2반 2등 상장을 들고 SSAFY 조형물 뒤에 선 팀원들" width="420" /> | <img src="docs/photos/fly-asia-2026.jpg" alt="FLY ASIA 2026 전시장의 가볼래 부스 앞에서 팀원들이 엄지를 들고 있고, 화면과 휴대폰에 가볼래 앱이 켜져 있는 모습" width="420" /> |
-| 15기 부울경 2반 2등 · 2026.09 | 부산 BEXCO · 2026.10.07 ~ 08 |
-
-SSAFY 특화프로젝트 발표회에서 반 2등으로 우수상을 받았습니다. 프로젝트 기간이 끝난 뒤에도 팀은 앱 업데이트를 이어 가고 있고, 2026년 10월에는 부산 BEXCO에서 열린 스타트업 행사 FLY ASIA 2026에 부스를 열었습니다. 방문객은 부스의 QR 코드로 앱을 바로 열어 볼 수 있었습니다. 행사 전에는 시연 녹화에서 나온 앱 문제를 먼저 고쳐 전시에 대비했습니다.
-
-## 제가 맡은 일
-
-저는 앱의 여행 생성·일정 수정 요청을 받는 API와 저장 로직을 맡았습니다. 같은 생성 요청이 다시 들어왔을 때 여행이 늘어나지 않도록 고쳤고, 동행자의 일정 수정이 서로 덮어쓰지 않게 처리했습니다. 사용자 행동 이벤트가 메모리에만 남던 경로도 PostgreSQL 저장소로 연결했습니다.
+여행 생성과 일정 수정 요청을 받는 API, 그리고 이 데이터를 PostgreSQL에 저장하는 로직을 맡았습니다.
 
 화면, 추천 알고리즘, 개인화 실험, 배포는 팀원들이 나누어 개발했습니다. AI 도우미 서버 기능에도 참여했지만 해당 코드는 팀의 `back/dev` 브랜치에 있어, 이 공개본의 주요 구현 설명에서는 제외했습니다.
 
@@ -58,39 +49,70 @@ SSAFY 특화프로젝트 발표회에서 반 2등으로 우수상을 받았습�
 | 고지혁 | 개인화 실험, 모델·배치 작업 환경 |
 | 이예승 | 인프라, 배포, QA |
 
-## 문제 해결
+## 해결한 문제
 
-### 같은 요청으로 여행이 두 번 만들어지는 문제
+| 문제 | 해결 | 결과 |
+| --- | --- | --- |
+| 응답을 못 받은 사용자가 다시 누르면 여행이 두 번 생성됨 | 요청 키(`Idempotency-Key`)를 DB에 먼저 저장한 요청만 여행 생성 | 같은 키 요청 8개를 동시에 보내도 여행 1개 |
+| 동행자 두 명이 동시에 고치면 앞사람의 변경이 지워짐 | 사용자가 읽은 버전과 DB 버전이 같을 때만 수정, 다르면 409 | 동시 수정 8개 중 1개만 성공, 7개 거절 |
+| 메모리 테스트는 통과했지만 실제 PostgreSQL에서 충돌 처리가 실패함 | 예외 복구 대신 `ON CONFLICT DO NOTHING`과 조건부 `UPDATE`로 판단 | PostgreSQL 통합 테스트로 확인 |
+| 성공 응답 뒤에도 서버를 재시작하면 이벤트 기록이 사라짐 | 메모리 저장소로 가던 경로를 PostgreSQL Outbox 테이블로 연결 | 재시작해도 이벤트가 DB에 남음 |
 
-휴대폰이 서버 응답을 받지 못하면 사용자가 여행 만들기를 다시 누를 수 있습니다. 처음에는 요청 키가 있는지 조회한 뒤 여행을 저장했습니다. 두 요청이 동시에 들어오면 둘 다 키가 없다고 판단할 수 있었습니다.
+자세한 과정은 아래 [트러블슈팅](#트러블슈팅)에 정리했습니다.
 
-저장 순서를 바꿔 **DB에서 요청 키를 먼저 확보한 요청만 여행을 만들도록** 했습니다. 같은 사용자와 같은 `Idempotency-Key`를 한 번만 저장하게 하고, 이미 사용한 키면 요청 내용도 비교합니다. 내용이 같으면 기존 여행과 HTTP 200을 반환하고, 다르면 409로 거절합니다. 새 여행은 201로 응답합니다. 같은 요청을 반복해도 결과가 늘어나지 않게 하는 처리입니다.
+## 트러블슈팅
 
-[여행 생성 서비스](backend/src/main/java/com/gabolle/backend/trip/application/TripCreationService.java) · [DB 저장 코드](backend/src/main/java/com/gabolle/backend/trip/infra/JpaTripRepository.java) · [동시 요청 테스트](backend/src/test/java/com/gabolle/backend/trip/TripCreationTest.java) · [PostgreSQL 통합 테스트](backend/src/test/java/com/gabolle/backend/trip/TripPersistenceIntegrationTest.java)
+### 1. 같은 요청이 동시에 오면 여행이 중복 생성되던 문제
 
-8개 동시 요청 테스트는 메모리 저장소를 사용합니다. 실제 PostgreSQL에서는 같은 키의 재요청과 DB 제약을 별도 통합 테스트로 확인했습니다.
+**문제** 휴대폰이 서버 응답을 받지 못하면 사용자는 여행 만들기를 다시 누를 수 있습니다. 같은 요청이 두 번 오면 여행이 두 개 생길 수 있었습니다.
 
-### 동행자의 일정 수정이 서로 덮어쓰는 문제
+**원인** 처음에는 요청 키가 있는지 조회한 뒤 여행을 저장했습니다. 두 요청이 동시에 들어오면 둘 다 "키가 없다"고 판단해 각자 여행을 만들 수 있었습니다. 조회와 저장 사이의 짧은 틈이 문제였습니다.
 
-두 사람이 같은 일정의 5번 버전을 보고 수정하면, 나중에 저장한 내용이 앞사람의 변경을 지울 수 있습니다. 저장 직전에 최신 버전을 읽어도 읽기와 쓰기 사이에 다른 요청이 들어올 수 있었습니다.
+**해결** 저장 순서를 바꿔 **DB에서 요청 키를 먼저 확보한 요청만 여행을 만들도록** 했습니다. 같은 사용자와 같은 `Idempotency-Key`는 한 번만 저장되고, 이미 쓴 키면 요청 내용을 비교합니다. 내용이 같으면 기존 여행과 HTTP 200을, 다르면 409를 돌려줍니다. 새 여행은 201로 응답합니다.
 
-수정 요청에 사용자가 읽은 버전을 함께 받았습니다. DB에서는 같은 버전을 중복 저장하지 못하게 하고, 최신 버전도 사용자가 읽은 값과 일치할 때만 바꿉니다. 먼저 저장한 요청만 성공하며, 충돌한 요청에는 409를 반환해 사용자가 최신 일정을 다시 확인하도록 했습니다.
+<a href="docs/architecture/trip-create.html"><img src="docs/architecture/trip-create.png" alt="요청 키를 먼저 확보하고 여행을 저장하거나 기존 결과를 반환하는 처리 순서" width="860" /></a>
 
-8개 동시 수정 테스트에서는 1개가 성공하고 7개가 거절되며, 이 테스트도 메모리 저장소를 사용합니다. PostgreSQL 통합 테스트에서는 중복 버전 저장과 최신 버전 갱신 충돌, 실패한 수정의 롤백을 확인했습니다.
+<sub>여행 생성 요청이 처리되는 순서입니다. 여행 생성과 추천 일정 계산은 별도 API입니다.</sub>
+
+**결과** 같은 키로 8개 요청을 동시에 보내도 여행은 1개만 생깁니다. 이 동시 요청 테스트는 메모리 저장소를 쓰고, 실제 PostgreSQL에서는 같은 키의 재요청과 DB 제약을 별도 통합 테스트로 확인했습니다.
+
+**남은 과제** 동시 요청 테스트를 실제 PostgreSQL에서도 돌려 확인하려고 합니다.
+
+[여행 생성 서비스](backend/src/main/java/com/gabolle/backend/trip/application/TripCreationService.java) · [DB 저장 코드](backend/src/main/java/com/gabolle/backend/trip/infra/JpaTripRepository.java) · [동시 요청 테스트](backend/src/test/java/com/gabolle/backend/trip/TripCreationTest.java) · [PostgreSQL 통합 테스트](backend/src/test/java/com/gabolle/backend/trip/TripPersistenceIntegrationTest.java) · [다이어그램 HTML](docs/architecture/trip-create.html) · [DB 운영 기준](docs/DB-STANDARD.md)
+
+### 2. 동행자 두 명이 동시에 고치면 앞사람의 변경이 지워지던 문제
+
+**문제** 두 사람이 같은 일정의 5번 버전을 보고 수정하면, 나중에 저장한 내용이 앞사람의 변경을 지울 수 있었습니다.
+
+**원인** 저장 직전에 최신 버전을 다시 읽어도, 읽기와 쓰기 사이에 다른 요청이 끼어들 수 있었습니다.
+
+**해결** 수정 요청에 사용자가 읽은 버전을 함께 받았습니다. DB에서는 같은 버전을 중복 저장하지 못하게 하고, 최신 버전도 사용자가 읽은 값과 일치할 때만 바꿉니다. 먼저 저장한 요청만 성공하고, 충돌한 요청에는 409를 돌려줘 사용자가 최신 일정을 다시 확인하게 했습니다.
+
+**결과** 8개 동시 수정 테스트에서 1개만 성공하고 7개는 거절됩니다. 이 테스트도 메모리 저장소를 쓰고, PostgreSQL 통합 테스트에서는 중복 버전 저장과 최신 버전 갱신 충돌, 실패한 수정의 롤백을 확인했습니다.
 
 [일정 저장 코드](backend/src/main/java/com/gabolle/backend/itinerary/infra/JpaItineraryRepository.java) · [동시 수정 테스트](backend/src/test/java/com/gabolle/backend/itinerary/ItineraryVersionConflictTest.java) · [PostgreSQL 통합 테스트](backend/src/test/java/com/gabolle/backend/itinerary/ItineraryPersistenceIntegrationTest.java)
 
-### 메모리 테스트는 통과했지만 실제 DB에서는 실패했던 처리
+### 3. 메모리 테스트는 통과했지만 실제 PostgreSQL에서는 실패하던 충돌 처리
 
-일정 버전 충돌을 처리할 때 처음에는 `SAVEPOINT`로 여러 DB 작업 중 일부만 되돌릴 지점을 두려 했습니다. 메모리 저장소에서는 드러나지 않던 문제가 PostgreSQL 통합 테스트에서 나타났습니다. 당시 Spring 설정이 이 방식의 중첩 트랜잭션을 지원하지 않아 예외가 났습니다.
+**문제** 일정 버전 충돌을 처리할 때 처음에는 `SAVEPOINT`로 여러 DB 작업 중 일부만 되돌릴 지점을 두려 했습니다. 메모리 저장소 테스트는 통과했지만 PostgreSQL 통합 테스트에서 실패했습니다.
 
-중복이면 예외를 낸 뒤 복구하는 대신 `INSERT ... ON CONFLICT DO NOTHING`으로 저장을 건너뛰도록 바꿨습니다. 저장한 행이 0개면 충돌로 판단합니다. 최신 버전 갱신에도 조건부 `UPDATE`를 사용해, 트랜잭션을 복구하는 별도 절차 없이 충돌을 처리했습니다.
+**원인** 당시 Spring 설정이 이 방식의 중첩 트랜잭션을 지원하지 않아 예외가 났습니다.
 
-### 성공 응답 뒤에도 이벤트 기록이 사라지는 문제
+**해결** 중복이면 예외를 낸 뒤 복구하는 대신 `INSERT ... ON CONFLICT DO NOTHING`으로 저장을 건너뛰고, 저장한 행이 0개면 충돌로 판단하게 바꿨습니다. 최신 버전 갱신에도 조건부 `UPDATE`를 써서, 트랜잭션을 복구하는 별도 절차 없이 충돌을 처리했습니다.
 
-사용자 행동 이벤트 API가 DB 대신 메모리 저장소를 호출하고 있어 서버를 다시 시작하면 기록이 사라졌습니다. 저장소 구현을 추적해 이벤트를 외부로 보내기 전에 DB에 먼저 남기는 Outbox 테이블로 연결했습니다. 제가 수정한 범위는 이벤트 수집·저장 경로이며, Outbox 전체 설계는 팀 작업입니다.
+**결과** 바꾼 방식으로 PostgreSQL 통합 테스트에서 중복 버전 저장과 최신 버전 갱신 충돌을 확인했습니다.
 
-공개본의 발행자는 `NoOpEventPublisher`입니다. 이벤트 저장까지 포함하고, Kafka로 전달하는 기능은 포함하지 않습니다. [이벤트 수집 서비스](backend/src/main/java/com/gabolle/backend/event/application/EventIngestService.java) · [Outbox 저장 서비스](backend/src/main/java/com/gabolle/backend/event/application/OutboxService.java)
+### 4. 성공 응답을 받았는데 이벤트 기록이 사라지던 문제
+
+**문제** 사용자 행동 이벤트 API는 저장에 성공했다고 응답했지만, 서버를 다시 시작하면 기록이 사라졌습니다.
+
+**원인** 저장소 구현을 따라가 보니 이벤트 API가 DB가 아니라 메모리 저장소를 호출하고 있었습니다.
+
+**해결** 이벤트를 외부로 보내기 전에 DB에 먼저 남기는 Outbox 테이블로 저장 경로를 연결했습니다. 제가 수정한 범위는 이벤트 수집·저장 경로이며, Outbox 전체 설계는 팀 작업입니다.
+
+**남은 과제** 공개본의 발행자는 `NoOpEventPublisher`라서 이벤트 저장까지만 포함하고, Kafka로 전달하는 기능은 포함하지 않습니다.
+
+[이벤트 수집 서비스](backend/src/main/java/com/gabolle/backend/event/application/EventIngestService.java) · [Outbox 저장 서비스](backend/src/main/java/com/gabolle/backend/event/application/OutboxService.java)
 
 ## 서비스 구성
 
@@ -107,11 +129,14 @@ SSAFY 특화프로젝트 발표회에서 반 2등으로 우수상을 받았습�
 
 개인화 실험 결과와 데이터 가공 결과를 온라인 추천에 자동 연결하는 경로는 공개본에서 검증하지 않았습니다. 추천 성능이나 실제 서비스 이용 성과를 수치로 제시할 단계는 아닙니다.
 
-### 여행 생성 요청이 처리되는 순서
+## 수상과 전시
 
-<a href="docs/architecture/trip-create.html"><img src="docs/architecture/trip-create.png" alt="요청 키를 먼저 확보하고 여행을 저장하거나 기존 결과를 반환하는 처리 순서" width="860" /></a>
+| SSAFY 특화프로젝트 발표회 우수상 | FLY ASIA 2026 전시 부스 |
+| :---: | :---: |
+| <img src="docs/photos/ssafy-award.jpg" alt="SSAFY 특화프로젝트 발표회에서 15기 부울경 2반 2등 상장을 들고 SSAFY 조형물 뒤에 선 팀원들" width="420" /> | <img src="docs/photos/fly-asia-2026.jpg" alt="FLY ASIA 2026 전시장의 가볼래 부스 앞에서 팀원들이 엄지를 들고 있고, 화면과 휴대폰에 가볼래 앱이 켜져 있는 모습" width="420" /> |
+| 15기 부울경 2반 2등 · 2026.09 | 부산 BEXCO · 2026.10.07 ~ 08 |
 
-여행 생성과 추천 일정 계산은 별도 API입니다. [다이어그램 HTML](docs/architecture/trip-create.html) · [DB 운영 기준](docs/DB-STANDARD.md)
+SSAFY 특화프로젝트 발표회에서 반 2등으로 우수상을 받았습니다. 프로젝트 기간이 끝난 뒤에도 팀은 앱 업데이트를 이어 가고 있고, 2026년 10월에는 부산 BEXCO에서 열린 스타트업 행사 FLY ASIA 2026에 부스를 열었습니다. 방문객은 부스의 QR 코드로 앱을 바로 열어 볼 수 있었습니다. 행사 전에는 시연 녹화에서 나온 앱 문제를 먼저 고쳐 전시에 대비했습니다.
 
 ## 협업과 회고
 
