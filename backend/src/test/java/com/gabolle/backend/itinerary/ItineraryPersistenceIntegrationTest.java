@@ -7,8 +7,19 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import javax.sql.DataSource;
+
+import com.zaxxer.hikari.HikariDataSource;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,9 +53,15 @@ import com.gabolle.testslice.ItinerarySliceApplication;
 @ExtendWith(PostgresAvailableCondition.class)
 class ItineraryPersistenceIntegrationTest {
 
+	/** 동시 수정 테스트에서 8개 편집이 모두 DB 연결을 잡고 동시에 들어가게 한다. */
+	private static final int CONCURRENT_EDITS = 8;
+
 	@DynamicPropertySource
 	static void datasourceProperties(DynamicPropertyRegistry registry) {
 		TestDatabase.registerDatasource(registry);
+		// TestDatabase 의 기본 상한(4)으로는 8개 중 4개가 연결을 기다리며 줄을 선다.
+		// 이 클래스만 상한을 올려, 같은 판 번호를 노리는 편집이 실제로 겹치게 한다.
+		registry.add("spring.datasource.hikari.maximum-pool-size", () -> String.valueOf(CONCURRENT_EDITS + 2));
 	}
 
 	@Autowired
@@ -52,6 +69,9 @@ class ItineraryPersistenceIntegrationTest {
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
+
+	@Autowired
+	private DataSource dataSource;
 
 	private String itineraryId;
 	private String tripId;
@@ -133,5 +153,61 @@ class ItineraryPersistenceIntegrationTest {
 
 		// 🔴 진 쪽 시도로 포인터가 어긋나지 않는다 — 여전히 2다.
 		assertThat(itineraryRepository.findById(itineraryId).orElseThrow().latestVersion()).isEqualTo(2);
+	}
+
+	/**
+	 * 같은 1번 판을 바탕으로 한 편집 8개가 <b>동시에</b> 들어와도 실제 PostgreSQL 에서 하나만
+	 * 성공하고 나머지는 {@link StaleItineraryVersionException}(409)으로 거절된다.
+	 *
+	 * <p>{@code ItineraryVersionConflictTest} 의 동시성 테스트는 메모리 저장소다. 여기서는 판 번호
+	 * {@code ON CONFLICT} 와 포인터 조건부 UPDATE 가 동시에 겹칠 때 다른 예외(교착 등) 없이
+	 * 409 로만 갈리는지, 판이 건너뛰어지지 않는지를 본다.
+	 */
+	@Test
+	void concurrentEditsFromSameBaseOnlyOneWinsOnPostgres() throws Exception {
+		assertThat(dataSource.unwrap(HikariDataSource.class).getMaximumPoolSize())
+				.as("8개 편집이 연결을 기다리지 않고 동시에 DB 에 들어가야 한다")
+				.isGreaterThanOrEqualTo(CONCURRENT_EDITS);
+
+		CountDownLatch startTogether = new CountDownLatch(1);
+		AtomicInteger succeeded = new AtomicInteger();
+		AtomicInteger rejected = new AtomicInteger();
+		List<Future<Void>> futures = new ArrayList<>();
+
+		ExecutorService pool = Executors.newFixedThreadPool(CONCURRENT_EDITS);
+		try {
+			for (int i = 0; i < CONCURRENT_EDITS; i++) {
+				ItineraryVersion candidate = versionCandidate(2, 1);
+				futures.add(pool.submit(() -> {
+					startTogether.await();
+					try {
+						itineraryRepository.appendVersion(candidate, List.of(), List.of(), List.of());
+						succeeded.incrementAndGet();
+					} catch (StaleItineraryVersionException expected) {
+						rejected.incrementAndGet();
+					}
+					return null;
+				}));
+			}
+			startTogether.countDown();
+			for (Future<Void> future : futures) {
+				future.get(30, TimeUnit.SECONDS); // 409 가 아닌 예외가 나면 여기서 실패한다
+			}
+		} finally {
+			pool.shutdownNow();
+		}
+
+		assertThat(succeeded.get()).as("정확히 하나만 성공").isEqualTo(1);
+		assertThat(rejected.get()).as("나머지는 전부 409").isEqualTo(CONCURRENT_EDITS - 1);
+		assertThat(itineraryRepository.findById(itineraryId).orElseThrow().latestVersion()).isEqualTo(2);
+
+		Integer version2Rows = jdbcTemplate.queryForObject(
+				"SELECT count(*) FROM itinerary_versions WHERE itinerary_id = ? AND version = 2",
+				Integer.class, UUID.fromString(itineraryId));
+		Integer version3Rows = jdbcTemplate.queryForObject(
+				"SELECT count(*) FROM itinerary_versions WHERE itinerary_id = ? AND version = 3",
+				Integer.class, UUID.fromString(itineraryId));
+		assertThat(version2Rows).isEqualTo(1);
+		assertThat(version3Rows).as("판이 건너뛰어지지 않는다").isZero();
 	}
 }

@@ -8,8 +8,18 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+import javax.sql.DataSource;
+
+import com.zaxxer.hikari.HikariDataSource;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -47,9 +57,15 @@ import com.gabolle.testslice.TripSliceApplication;
 @ExtendWith(PostgresAvailableCondition.class)
 class TripPersistenceIntegrationTest {
 
+	/** 동시 요청 테스트에서 8개 요청이 모두 DB 연결을 잡고 동시에 들어가게 한다. */
+	private static final int CONCURRENT_REQUESTS = 8;
+
 	@DynamicPropertySource
 	static void datasourceProperties(DynamicPropertyRegistry registry) {
 		TestDatabase.registerDatasource(registry);
+		// TestDatabase 의 기본 상한(4)으로는 8개 중 4개가 연결을 기다리며 줄을 선다.
+		// 이 클래스만 상한을 올려, 같은 키의 INSERT 가 실제로 겹치게 한다.
+		registry.add("spring.datasource.hikari.maximum-pool-size", () -> String.valueOf(CONCURRENT_REQUESTS + 2));
 	}
 
 	@Autowired
@@ -57,6 +73,9 @@ class TripPersistenceIntegrationTest {
 
 	@Autowired
 	private JdbcTemplate jdbcTemplate;
+
+	@Autowired
+	private DataSource dataSource;
 
 	private String userId;
 
@@ -240,5 +259,62 @@ class TripPersistenceIntegrationTest {
 		assertThrows(TripRepository.IdempotencyKeyConflictException.class,
 				() -> tripRepository.saveWithIdempotency(
 						userId, "key_2", "fp_b", otherTrip, List.of(), otherOwner, otherSnapshot));
+	}
+
+	/**
+	 * 같은 키의 요청 8개가 <b>동시에</b> 들어와도 실제 PostgreSQL 에서 여행은 하나만 생긴다.
+	 *
+	 * <p>{@code TripCreationTest} 의 동시성 테스트는 메모리 저장소라 {@code ON CONFLICT} 를 거치지
+	 * 않는다. 여기서는 8개 트랜잭션이 같은 (user_id, idempotency_key) 를 동시에 INSERT 하고,
+	 * 진 쪽이 예외 없이 이긴 쪽의 여행을 돌려받는지까지 본다.
+	 */
+	@Test
+	void concurrentSameKeyCreatesOneTripOnPostgres() throws Exception {
+		assertThat(dataSource.unwrap(HikariDataSource.class).getMaximumPoolSize())
+				.as("8개 요청이 연결을 기다리지 않고 동시에 DB 에 들어가야 한다")
+				.isGreaterThanOrEqualTo(CONCURRENT_REQUESTS);
+
+		Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+		CountDownLatch startTogether = new CountDownLatch(1);
+		List<String> candidateTripIds = new ArrayList<>();
+		List<Future<TripRepository.SaveOutcome>> futures = new ArrayList<>();
+		List<TripRepository.SaveOutcome> outcomes = new ArrayList<>();
+
+		ExecutorService pool = Executors.newFixedThreadPool(CONCURRENT_REQUESTS);
+		try {
+			for (int i = 0; i < CONCURRENT_REQUESTS; i++) {
+				String tripId = UUID.randomUUID().toString();
+				candidateTripIds.add(tripId);
+				Trip trip = newTrip(tripId, now);
+				TripMember owner = TripMember.owner(UUID.randomUUID().toString(), tripId, userId, now);
+				PreferenceSnapshot snapshot = new PreferenceSnapshot(
+						UUID.randomUUID().toString(), tripId, 1, List.of(), PersonalizationScope.TRIP, List.of(), now);
+				futures.add(pool.submit(() -> {
+					startTogether.await();
+					return tripRepository.saveWithIdempotency(
+							userId, "key_concurrent", "fp_same", trip, List.of(), owner, snapshot);
+				}));
+			}
+			startTogether.countDown();
+			for (Future<TripRepository.SaveOutcome> future : futures) {
+				outcomes.add(future.get(30, TimeUnit.SECONDS)); // 진 쪽이 예외를 던지면 여기서 실패한다
+			}
+		} finally {
+			pool.shutdownNow();
+		}
+
+		List<TripRepository.SaveOutcome> created = outcomes.stream().filter(TripRepository.SaveOutcome::created).toList();
+		assertThat(created).as("새로 만든 요청은 정확히 하나").hasSize(1);
+		String winnerTripId = created.get(0).trip().tripId();
+		assertThat(outcomes).as("나머지 7개도 같은 여행을 돌려받는다")
+				.allSatisfy(outcome -> assertThat(outcome.trip().tripId()).isEqualTo(winnerTripId));
+
+		Integer keyRows = jdbcTemplate.queryForObject(
+				"SELECT count(*) FROM trip_idempotency WHERE user_id = ? AND idempotency_key = 'key_concurrent'",
+				Integer.class, UUID.fromString(userId));
+		assertThat(keyRows).isEqualTo(1);
+		assertThat(candidateTripIds.stream().filter(id -> tripRepository.findById(id).isPresent()))
+				.as("8개 후보 중 DB 에 남은 여행은 이긴 쪽 하나")
+				.containsExactly(winnerTripId);
 	}
 }
