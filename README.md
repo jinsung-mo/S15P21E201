@@ -74,9 +74,7 @@
 
 <sub>여행 생성 요청이 처리되는 순서입니다. 여행 생성과 추천 일정 계산은 별도 API입니다.</sub>
 
-**결과** 같은 키로 8개 요청을 동시에 보내도 여행은 1개만 생깁니다. 이 동시 요청 테스트는 메모리 저장소를 쓰고, 실제 PostgreSQL에서는 같은 키의 재요청과 DB 제약을 별도 통합 테스트로 확인했습니다.
-
-**남은 과제** 동시 요청 테스트를 실제 PostgreSQL에서도 돌려 확인하려고 합니다.
+**결과** 같은 키로 8개 요청을 동시에 보내도 여행은 1개만 생기고, 나머지 7개는 같은 여행을 돌려받습니다. 프로젝트 때는 이 동시 요청 테스트를 메모리 저장소로 돌렸고, 프로젝트 후 실제 PostgreSQL 통합 테스트로도 확인했습니다.
 
 [여행 생성 서비스](backend/src/main/java/com/gabolle/backend/trip/application/TripCreationService.java) · [DB 저장 코드](backend/src/main/java/com/gabolle/backend/trip/infra/JpaTripRepository.java) · [동시 요청 테스트](backend/src/test/java/com/gabolle/backend/trip/TripCreationTest.java) · [PostgreSQL 통합 테스트](backend/src/test/java/com/gabolle/backend/trip/TripPersistenceIntegrationTest.java) · [다이어그램 HTML](docs/architecture/trip-create.html) · [DB 운영 기준](docs/DB-STANDARD.md)
 
@@ -88,7 +86,7 @@
 
 **해결** 수정 요청에 사용자가 읽은 버전을 함께 받았습니다. DB에서는 같은 버전을 중복 저장하지 못하게 하고, 최신 버전도 사용자가 읽은 값과 일치할 때만 바꿉니다. 먼저 저장한 요청만 성공하고, 충돌한 요청에는 409를 돌려줘 사용자가 최신 일정을 다시 확인하게 했습니다.
 
-**결과** 8개 동시 수정 테스트에서 1개만 성공하고 7개는 거절됩니다. 이 테스트도 메모리 저장소를 쓰고, PostgreSQL 통합 테스트에서는 중복 버전 저장과 최신 버전 갱신 충돌, 실패한 수정의 롤백을 확인했습니다.
+**결과** 8개 동시 수정 테스트에서 1개만 성공하고 7개는 거절됩니다. 프로젝트 때는 이 테스트를 메모리 저장소로 돌렸고, 프로젝트 후 실제 PostgreSQL에서도 같은 결과를 확인했습니다. PostgreSQL 통합 테스트에서는 중복 버전 저장과 최신 버전 갱신 충돌, 실패한 수정의 롤백도 확인합니다.
 
 [일정 저장 코드](backend/src/main/java/com/gabolle/backend/itinerary/infra/JpaItineraryRepository.java) · [동시 수정 테스트](backend/src/test/java/com/gabolle/backend/itinerary/ItineraryVersionConflictTest.java) · [PostgreSQL 통합 테스트](backend/src/test/java/com/gabolle/backend/itinerary/ItineraryPersistenceIntegrationTest.java)
 
@@ -142,7 +140,7 @@ SSAFY 특화프로젝트 발표회에서 반 2등으로 우수상을 받았습�
 
 Jira 업무를 Epic·Story·Task로 나누고 브랜치와 커밋에 티켓 키를 넣었습니다. 파트별 개발 브랜치를 거쳐 병합했고, 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md)에 남겼습니다.
 
-이번 프로젝트에서는 메모리 테스트가 통과해도 DB 저장이 안전하다고 판단할 수 없다는 것을 배웠습니다. PostgreSQL 통합 테스트에서 저장 제약과 트랜잭션 오류를 발견한 뒤, 동시 요청 로직과 실제 DB 동작을 나눠 확인했습니다. 다음에는 실제 DB를 사용하는 동시 요청 검증과 이벤트 발행 경로를 더 보강하려고 합니다.
+이번 프로젝트에서는 메모리 테스트가 통과해도 DB 저장이 안전하다고 판단할 수 없다는 것을 배웠습니다. PostgreSQL 통합 테스트에서 저장 제약과 트랜잭션 오류를 발견한 뒤, 동시 요청 로직과 실제 DB 동작을 나눠 확인했습니다. 프로젝트 후에는 실제 PostgreSQL에서 8개 동시 요청도 검증했습니다. 다음에는 이벤트 발행 경로를 더 보강하려고 합니다.
 
 ## 실행 방법
 
